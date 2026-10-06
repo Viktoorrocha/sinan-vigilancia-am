@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: brz_sinan_dengue
+    description: "Cópia fiel dos arquivos SINAN de dengue (AM, 2022-2025), sem transformação."
+    columns:
+      - name: arquivo_origem
+        data_tests: [not_null]
+      - name: carregado_em
+        data_tests: [not_null]
+
+  - name: slv_sinan_dengue
+    description: "Notificações de dengue no Amazonas, tipadas, decodificadas e sem duplicatas exatas. Uma linha por notificação."
+    columns:
+      - name: chave_notificacao
+        description: "Hash MD5 da linha de origem (o arquivo não traz número de notificação)."
+        data_tests: [unique, not_null]
+      - name: ano_notificacao
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [2022, 2023, 2024, 2025, 2026]
+                quote: false
+      - name: data_notificacao
+        data_tests: [not_null]
+      - name: uf_notificacao
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['13']
+      - name: sexo
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Masculino', 'Feminino', 'Ignorado']
+      - name: cod_classificacao_final
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['8', '10', '11', '12']
+      - name: cod_evolucao
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['1', '2', '3', '4', '9']
+      - name: criterio_confirmacao
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Laboratorial', 'Clínico-epidemiológico', 'Em investigação', 'Não informado']
