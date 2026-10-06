@@ -29,3 +29,6 @@ extract/**/*.parquet
 # Segredos (qualquer .env, exceto o exemplo)
 .env.*
 !.env.example
+
+# dbt
+dbt/.user.yml
