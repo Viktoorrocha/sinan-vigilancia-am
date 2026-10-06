@@ -5,8 +5,15 @@ config-version: 2
 profile: 'sinan_vigilancia'
 
 model-paths: ["models"]
+macro-paths: ["macros"]
 test-paths: ["tests"]
 
 models:
   sinan_vigilancia:
     +materialized: table
+    bronze:
+      +schema: bronze
+    silver:
+      +schema: silver
+    gold:
+      +schema: gold
