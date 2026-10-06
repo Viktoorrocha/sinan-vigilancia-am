@@ -1,0 +1,12 @@
+name: 'sinan_vigilancia'
+version: '1.0.0'
+config-version: 2
+
+profile: 'sinan_vigilancia'
+
+model-paths: ["models"]
+test-paths: ["tests"]
+
+models:
+  sinan_vigilancia:
+    +materialized: table

@@ -1,0 +1,31 @@
+# Airflow
+airflow/logs/
+airflow/plugins/__pycache__/
+airflow/airflow.db
+airflow/airflow.cfg
+airflow/webserver_config.py
+airflow/standalone_admin_password.txt
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Dados brutos (nunca versionar arquivo de dado)
+*.dbc
+*.dbf
+extract/**/*.csv
+extract/**/*.parquet
+
+# Ambiente
+.env
+.DS_Store
+# Segredos (qualquer .env, exceto o exemplo)
+.env.*
+!.env.example
