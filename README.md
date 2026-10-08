@@ -1,100 +1,111 @@
-# Pipeline de Vigilância SINAN — Amazonas
+# Vigilância da Dengue no Amazonas — Pipeline SINAN
 
-Pipeline de dados ponta a ponta construído com **dados públicos reais de vigilância em saúde** (SINAN / DataSUS): notificações de dengue no estado do Amazonas, 2022–2025.
+Pipeline de dados que transforma as notificações públicas de dengue do SINAN (Ministério da Saúde / DataSUS) em tabelas analíticas prontas para uso, com foco no estado do Amazonas, de 2022 a 2025.
 
-Os dados são extraídos direto da fonte oficial do DataSUS, carregados em um lakehouse Databricks e transformados com dbt em uma arquitetura medalhão (bronze → silver → gold), com testes automatizados de qualidade em todas as camadas.
+O resultado é uma camada analítica que responde, por semana epidemiológica e município: quantos casos foram notificados, quantos confirmados, quantos graves, quantas internações e óbitos, e qual a letalidade.
 
-> Sem dados sintéticos. Todos os números deste projeto vêm da fonte oficial.
+## Em números
+
+| | |
+|---|---|
+| Período | 2022–2025 |
+| Notificações processadas | 25.071 |
+| Óbitos por dengue | 30 |
+| Fonte | SINAN — DataSUS (dados públicos oficiais) |
+| Testes de qualidade | 16 em execução automática |
 
 ## Arquitetura
 
 ```
 FTP do DataSUS (SINAN DENG)
-        │  pysus + DuckDB: filtra UF = AM, grava Parquet
+        │  Python + pysus + DuckDB: filtra UF = AM, grava Parquet
         ▼
 Volume do Databricks (landing)
-        │  read_files
+        │
         ▼
 bronze  ──►  silver  ──►  gold
- bruto +      tipado,       casos semanais
- origem       decodificado, por município
-              sem           (semana epidemiológica)
-              duplicatas
-        └──────── modelos e testes dbt ────────┘
+        └──────── dbt ────────┘
+        Orquestração: Apache Airflow (Docker)
 ```
 
-| Camada | Modelo | O que faz |
+| Camada | Modelo | Conteúdo |
 |---|---|---|
-| bronze | `brz_sinan_dengue` | Parquet bruto, como veio, com nome do arquivo de origem e data de carga |
-| silver | `slv_sinan_dengue` | Datas tipadas, categorias decodificadas (sexo, raça/cor, classificação, evolução), idade normalizada em anos, chave substituta e remoção de duplicatas exatas |
-| gold | `gld_dengue_semana_municipio` | Notificações, casos confirmados, casos com sinais de alarme, casos graves, hospitalizações, óbitos e letalidade por semana epidemiológica e município |
+| bronze | `brz_sinan_dengue` | Dado bruto com rastreabilidade: arquivo de origem e data de carga |
+| silver | `slv_sinan_dengue` | Datas tipadas, categorias decodificadas, idade em anos, chave da notificação e deduplicação |
+| gold | `gld_dengue_semana_municipio` | Indicadores por semana epidemiológica e município |
 
-## Stack
+Exemplo de consulta sobre a camada gold, os dez municípios com mais óbitos:
 
-- **Extração:** Python, [pysus](https://github.com/AlertaDengue/PySUS), DuckDB, Parquet
-- **Data warehouse:** Databricks (Unity Catalog, Delta, SQL warehouse serverless)
-- **Transformação e testes:** dbt (dbt-databricks)
-- **Orquestração:** Apache Airflow (Docker)
-- **Infraestrutura:** Docker Compose, com dependências isoladas em dois ambientes virtuais (pysus e dbt têm requisitos conflitantes)
+```sql
+select cod_municipio,
+       sum(notificacoes)       as notificacoes,
+       sum(casos_confirmados)  as confirmados,
+       sum(obitos)             as obitos
+from sinan_vigilancia.gold.gld_dengue_semana_municipio
+group by cod_municipio
+order by obitos desc
+limit 10;
+```
+
+## Decisões de modelagem
+
+- **Chave da notificação.** O arquivo público não traz número de notificação. A chave é o hash do registro completo, usada para remover duplicatas exatas.
+- **Ano da notificação, não do arquivo.** O arquivo de um ano contém registros de anos vizinhos. Todas as agregações usam a data de notificação.
+- **Recorte por UF notificante** (`SG_UF_NOT = AM`), o critério usado pela vigilância para atribuir o caso a quem notificou.
+- **Campos em branco.** O SINAN grava vazio como string vazia. Eles são convertidos em nulo antes da decodificação, para que "ignorado" seja uma única categoria.
+- **Idade.** O código de idade do SINAN (unidade + valor) é convertido para anos.
+- **Dependências isoladas.** `pysus` e `dbt` rodam em ambientes virtuais separados dentro do mesmo container, porque seus requisitos de pacotes são incompatíveis.
 
 ## Qualidade de dados
 
-Os testes rodam com `dbt build` (testes genéricos e singulares nas três camadas), incluindo:
+Os testes rodam a cada `dbt build`:
 
 - Unicidade e não nulidade da chave da notificação
 - Valores aceitos para UF, sexo, classificação final, evolução e critério de confirmação
-- Coerência cronológica: início dos sintomas não pode ser posterior à notificação
-- Faixa de idade plausível (severidade de aviso)
-- Unicidade do grão do gold e consistência das métricas (por exemplo, óbitos ≤ notificações, letalidade entre 0 e 100)
-- Reconciliação: os totais de silver e gold batem linha a linha (25.071 notificações, 30 óbitos)
+- Coerência cronológica entre data de sintomas e data de notificação
+- Faixa de idade plausível
+- Grão único no gold (semana + município)
+- Consistência das métricas do gold: óbitos, confirmados e internações nunca excedem as notificações, e a letalidade fica entre 0 e 100
+- Reconciliação entre silver e gold: os totais batem
 
-### O que descobri sobre a fonte
+## Stack
 
-Pontos que vale conhecer antes de usar estes arquivos, descobertos durante a construção:
+Python · pysus · DuckDB · Parquet · Databricks (Unity Catalog, Delta) · dbt · Apache Airflow · Docker Compose
 
-- **O arquivo público de dengue do SINAN não traz o número da notificação**, então não há chave natural. A chave da silver é um hash do registro completo, e apenas 2 duplicatas exatas foram removidas.
-- **Ano do arquivo ≠ ano da notificação.** O arquivo de 2025 contém registros notificados em 2026 e alguns de anos anteriores. O pipeline usa o ano da notificação, nunca o ano do arquivo.
-- **Filtra-se apenas a UF notificante** (`SG_UF_NOT = AM`). Residentes do Amazonas notificados em outros estados não entram.
-- **Campos em branco vêm como string vazia, não como nulo.** Eles são normalizados para nulo antes da decodificação, para não gerar categorias "ignorado" duplicadas.
-- **Casos inconclusivos** (classificação 8) somam cerca de 7,6% dos registros. Os arquivos públicos não contêm casos descartados.
-- O ano mais recente ainda pode ser preliminar.
-
-## Estrutura do projeto
+## Estrutura
 
 ```
 .
-├── docker-compose.yml        # container do Airflow
-├── Dockerfile                # imagem do Airflow + venvs isolados (pysus e dbt)
-├── extract/dengue/           # script de extração (pysus → Parquet)
+├── docker-compose.yml
+├── Dockerfile
+├── extract/dengue/       # extração (pysus → Parquet)
 ├── dbt/
 │   ├── models/{bronze,silver,gold}/
-│   ├── tests/                # testes de dados singulares
-│   └── macros/               # sobrescrita da nomenclatura de schemas
-├── .env.example              # variáveis de ambiente necessárias
-└── airflow/                  # DAGs, logs, plugins
+│   ├── tests/
+│   └── macros/
+├── airflow/              # DAGs
+└── .env.example
 ```
 
-## Como rodar
+## Como executar
 
-1. Copie `.env.example` para `.env` e preencha o host do Databricks, o HTTP path do SQL warehouse e o token de acesso pessoal.
+1. Copie `.env.example` para `.env` e preencha o host do Databricks, o HTTP path do SQL warehouse e o token de acesso.
 2. `docker compose up -d`
-3. Rode a extração, suba os arquivos Parquet para o Volume de landing e então:
+3. Execute a extração, envie os Parquet ao Volume de landing e rode:
 
 ```bash
 docker exec -it airflow-sinan bash -c \
   "cd /opt/airflow/dbt && /opt/venvs/dbt/bin/dbt build --profiles-dir ."
 ```
 
-## Status
+## Próximos passos
 
-- [x] Extração da fonte oficial (4 anos)
-- [x] Modelos bronze, silver e gold
-- [x] Testes de qualidade em todas as camadas
-- [ ] DAG do Airflow orquestrando extração → carga → `dbt build`
-- [ ] Dimensão de municípios (IBGE) e cruzamento com estabelecimentos do CNES
-- [ ] Processamento incremental e upsert (estilo CDC) na silver
-- [ ] Dashboard sobre a camada gold
+- DAG do Airflow para orquestrar extração, carga e `dbt build`
+- Dimensão de municípios (IBGE) com nomes e população, para taxas de incidência
+- Cruzamento com estabelecimentos de saúde pelo código CNES
+- Processamento incremental com upsert na silver
+- Dashboard sobre a camada gold
 
 ## Fonte dos dados
 
-Ministério da Saúde — SINAN (Sistema de Informação de Agravos de Notificação), distribuído pelo DataSUS. Dados públicos.
+Ministério da Saúde — SINAN (Sistema de Informação de Agravos de Notificação), via DataSUS.
