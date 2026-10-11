@@ -11,8 +11,6 @@ default_args = {
     "sla": timedelta(minutes=30),
 }
 
-# Envia cada Parquet para o Volume de landing pela Files API do Databricks.
-# Host e token vêm das variáveis de ambiente do container (arquivo .env).
 CARREGAR_NO_VOLUME = """
 set -euo pipefail
 DESTINO="/Volumes/sinan_vigilancia/bronze/landing/dengue"
@@ -27,6 +25,12 @@ done
 echo "Carga concluída"
 """
 
+DBT_BUILD = """
+set -euo pipefail
+cd /opt/airflow/dbt
+/opt/venvs/dbt/bin/dbt build --profiles-dir .
+"""
+
 with DAG(
     dag_id="sinan_dengue_am",
     description="Pipeline SINAN dengue (AM): extração, carga e dbt build",
@@ -36,18 +40,12 @@ with DAG(
     default_args=default_args,
     tags=["sinan", "dengue", "saude"],
 ) as dag:
-
     extrair = BashOperator(
         task_id="extrair_sinan_dengue",
-        bash_command=(
-            "/opt/venvs/pysus/bin/python "
-            "/opt/airflow/extract/dengue/extract_sinan_dengue.py"
-        ),
+        bash_command=("/opt/venvs/pysus/bin/python "
+                      "/opt/airflow/extract/dengue/extract_sinan_dengue.py"),
     )
+    carregar = BashOperator(task_id="carregar_no_volume", bash_command=CARREGAR_NO_VOLUME)
+    transformar = BashOperator(task_id="dbt_build", bash_command=DBT_BUILD)
 
-    carregar = BashOperator(
-        task_id="carregar_no_volume",
-        bash_command=CARREGAR_NO_VOLUME,
-    )
-
-    extrair >> carregar
+    extrair >> carregar >> transformar
