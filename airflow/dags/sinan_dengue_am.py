@@ -11,6 +11,22 @@ default_args = {
     "sla": timedelta(minutes=30),
 }
 
+# Envia cada Parquet para o Volume de landing pela Files API do Databricks.
+# Host e token vêm das variáveis de ambiente do container (arquivo .env).
+CARREGAR_NO_VOLUME = """
+set -euo pipefail
+DESTINO="/Volumes/sinan_vigilancia/bronze/landing/dengue"
+for f in /opt/airflow/extract/dengue/data/deng_am_*.parquet; do
+  nome=$(basename "$f")
+  echo "Enviando $nome"
+  curl -sS --fail -X PUT \
+    -H "Authorization: Bearer $DATABRICKS_TOKEN" \
+    --data-binary @"$f" \
+    "https://$DATABRICKS_HOST/api/2.0/fs/files$DESTINO/$nome?overwrite=true"
+done
+echo "Carga concluída"
+"""
+
 with DAG(
     dag_id="sinan_dengue_am",
     description="Pipeline SINAN dengue (AM): extração, carga e dbt build",
@@ -28,3 +44,10 @@ with DAG(
             "/opt/airflow/extract/dengue/extract_sinan_dengue.py"
         ),
     )
+
+    carregar = BashOperator(
+        task_id="carregar_no_volume",
+        bash_command=CARREGAR_NO_VOLUME,
+    )
+
+    extrair >> carregar
