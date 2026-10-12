@@ -17,3 +17,10 @@ models:
       +schema: silver
     gold:
       +schema: gold
+
+seeds:
+  sinan_vigilancia:
+    +schema: silver
+    +column_types:
+      cod_municipio: string
+      nome_municipio: string
