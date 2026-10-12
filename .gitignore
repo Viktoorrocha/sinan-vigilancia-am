@@ -32,3 +32,5 @@ extract/**/*.parquet
 
 # dbt
 dbt/.user.yml
+
+app/.venv/
