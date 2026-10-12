@@ -47,5 +47,9 @@ with DAG(
     )
     carregar = BashOperator(task_id="carregar_no_volume", bash_command=CARREGAR_NO_VOLUME)
     transformar = BashOperator(task_id="dbt_build", bash_command=DBT_BUILD)
+    exportar = BashOperator(
+        task_id="exportar_gold",
+        bash_command="cd /opt/airflow/app && /opt/venvs/dbt/bin/python export_gold.py",
+    )
 
-    extrair >> carregar >> transformar
+    extrair >> carregar >> transformar >> exportar

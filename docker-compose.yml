@@ -16,6 +16,7 @@ services:
       - ./airflow/plugins:/opt/airflow/plugins
       - ./dbt:/opt/airflow/dbt
       - ./extract:/opt/airflow/extract
+      - ./app:/opt/airflow/app
     ports:
       - "8080:8080"
     env_file:
