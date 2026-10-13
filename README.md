@@ -60,20 +60,54 @@ Painel público em Streamlit: https://sinan-vigilancia-am.streamlit.app/
 
 ## 3. Arquitetura
 
-```
-FTP do DataSUS (SINAN DENG)             API de localidades do IBGE
-        │  Python + pysus + DuckDB:             │  Python: 62 municípios do AM
-        │  filtra UF = AM, grava Parquet        │  (seed do dbt)
-        ▼                                       │
-Volume do Databricks (landing)                  │
-        │                                       │
-        ▼                                       ▼
-bronze  ──►  silver (+ ref_municipios_am)  ──►  gold
-        └─────────────── dbt ───────────────────┘
-                                                │
-                                                ▼
-                        Parquet (snapshot) ──► Streamlit
-        Orquestração: Apache Airflow (Docker)
+```mermaid
+flowchart LR
+    subgraph FONTES["Fontes públicas"]
+        SINAN["<b>FTP do DataSUS</b><br/>SINAN – Dengue"]
+        IBGE["<b>API de localidades do IBGE</b><br/>62 municípios do AM"]
+    end
+
+    VOL[("<b>Volume do Databricks</b><br/>landing")]
+
+    subgraph DBT["③ dbt build — transformação e testes"]
+        direction LR
+        BRZ[("<b>Bronze</b><br/>dado bruto, tudo em texto")]
+        SLV[("<b>Silver</b><br/>tipado e deduplicado")]
+        GLD[("<b>Gold</b><br/>indicadores por semana<br/>e município, com nome")]
+        SEED["<b>ref_municipios_am</b><br/>seed do dbt"]
+        BRZ --> SLV --> GLD
+        SEED --> SLV
+    end
+
+    PQ["<b>Parquet</b><br/>snapshot da gold"]
+    APP["<b>Painel Streamlit</b><br/>público"]
+
+    SINAN -->|"① extrair: pysus + DuckDB, filtra UF = AM<br/>② carregar: envia o Parquet"| VOL
+    VOL --> BRZ
+    IBGE -.->|"script Python fora da DAG<br/>CSV versionado no repositório"| SEED
+    GLD -->|"④ exportar_gold"| PQ
+    PQ --> APP
+
+    subgraph AIRFLOW["Orquestração: Apache Airflow (Docker) — DAG sinan_dengue_am, toda segunda às 6h"]
+        direction LR
+        T1["① extrair_sinan_dengue"] --> T2["② carregar_no_volume"] --> T3["③ dbt_build"] --> T4["④ exportar_gold"]
+    end
+
+    classDef fonte fill:#dbeafe,stroke:#2563eb,color:#0f172a
+    classDef armazenamento fill:#e5e7eb,stroke:#6b7280,color:#0f172a
+    classDef bronze fill:#fde4c8,stroke:#b45309,color:#0f172a
+    classDef silver fill:#e2e8f0,stroke:#64748b,color:#0f172a
+    classDef gold fill:#fef08a,stroke:#ca8a04,color:#0f172a
+    classDef painel fill:#bbf7d0,stroke:#16a34a,color:#0f172a
+    classDef tarefa fill:#ede9fe,stroke:#7c3aed,color:#0f172a
+
+    class SINAN,IBGE fonte
+    class VOL,PQ armazenamento
+    class BRZ bronze
+    class SLV,SEED silver
+    class GLD gold
+    class APP painel
+    class T1,T2,T3,T4 tarefa
 ```
 
 | Camada | Modelo | Conteúdo |
